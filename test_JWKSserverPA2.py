@@ -1,5 +1,5 @@
 import unittest
-from JWKSserverPA1 import app
+from JWKSserverPA2 import app
 
 
 class FlaskTestCase(unittest.TestCase):
