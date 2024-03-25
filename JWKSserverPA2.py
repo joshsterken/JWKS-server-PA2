@@ -27,7 +27,7 @@ def startDB():
     #     'CREATE TABLE IF NOT EXISTS privateKeys (kid REAL, key BLOB, alg TEXT, kty TEXT, use TEXT, n TEXT, e TEXT, exp TEXT)'
     # )
     conn.execute(
-        'CREATE TABLE IF NOT EXISTS privateKeys (kid INTEGER PRIMARY KEY AUTOINCREMENT, key BLOB NOT NULL, exp INTEGER NOT NULL)'
+        'CREATE TABLE IF NOT EXISTS keys (kid INTEGER PRIMARY KEY AUTOINCREMENT, key BLOB NOT NULL, exp INTEGER NOT NULL)'
     )
     conn.commit()
     conn.close()
@@ -62,19 +62,19 @@ def generate_key_pair():
 def generate_keys_for_testing():
    #generate a key that will expire in 1 hour
     private_pem, public_pem, n, e = generate_key_pair()
-    expiry = time.time() + 3600  # 1 hour expiration
+    expiry = int(time.time()) + 3600  # 1 hour expiration
     #save to database
     conn = sqlite3.connect('totally_not_my_privateKeys.db')
-    conn.execute('INSERT INTO privateKeys (key, exp) VALUES (?, ?)',(private_pem, expiry))
+    conn.execute('INSERT INTO keys (key, exp) VALUES (?, ?)',(private_pem, expiry))
     conn.commit()
     conn.close()
 
     #generate a key that has already expired
     private_pem, public_pem, n, e = generate_key_pair()
-    expiry = time.time() - 3600  # expired
+    expiry = int(time.time()) - 3600  # expired
     #save to database
     conn = sqlite3.connect('totally_not_my_privateKeys.db')
-    conn.execute('INSERT INTO privateKeys (key, exp) VALUES (?, ?)',(private_pem, expiry))
+    conn.execute('INSERT INTO keys (key, exp) VALUES (?, ?)',(private_pem, expiry))
     conn.commit()
     conn.close()
 
@@ -87,33 +87,40 @@ def jwks():
     # connect to database
     conn = sqlite3.connect('totally_not_my_privateKeys.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT kid, key, exp FROM privateKeys WHERE exp > ?', (time.time(),))
+    cursor.execute('SELECT kid, key, exp FROM keys WHERE exp > ?', (time.time(),))
     data = cursor.fetchall()
     conn.close()
 
-    private_pem = data[1]
-    # Load the private key
-    private_key = serialization.load_pem_private_key(
-        private_pem,
-        password=None,
-        backend=default_backend()
-    )
+    # print(f"data:\n\n{data}\n\n")
 
-    n = private_key.public_key().public_numbers().n
-    e = private_key.public_key().public_numbers().e
+    for row in data:
+        kid = row[0]
+        private_pem = row[1]
+        exp = row[2]
 
-    # convert n and e to base64 url safe
-    n_byte_array = n.to_bytes((n.bit_length() + 7) // 8, byteorder="big", signed=False)
-    n_base64_str = base64.urlsafe_b64encode(n_byte_array).decode("utf-8").rstrip("=")
-    # print(f"n = {n_base64_str}")
-    e_byte_array = e.to_bytes((e.bit_length() + 7) // 8, byteorder="big", signed=False)
-    e_base64_str = base64.urlsafe_b64encode(e_byte_array).decode("utf-8").rstrip("=")
-    # print(f"e = {e_base64_str}")
+        # print(f"kid:{kid}\nexpiry:{exp}\n")
 
-    for kid, exp in data:
+        # Load the private key
+        private_key = serialization.load_pem_private_key(
+            private_pem,
+            password=None,
+            backend=default_backend()
+        )
+
+        n = private_key.public_key().public_numbers().n
+        e = private_key.public_key().public_numbers().e
+
+        # convert n and e to base64 url safe
+        n_byte_array = n.to_bytes((n.bit_length() + 7) // 8, byteorder="big", signed=False)
+        n_base64_str = base64.urlsafe_b64encode(n_byte_array).decode("utf-8").rstrip("=")
+        # print(f"n = {n_base64_str}")
+        e_byte_array = e.to_bytes((e.bit_length() + 7) // 8, byteorder="big", signed=False)
+        e_base64_str = base64.urlsafe_b64encode(e_byte_array).decode("utf-8").rstrip("=")
+        # print(f"e = {e_base64_str}")
+
         tmp.append(
             {
-                "kid": kid,
+                "kid": str(kid),
                 "alg": "RS256",
                 "kty": "RSA",
                 "use": "sig",
@@ -122,13 +129,45 @@ def jwks():
                 "e": e_base64_str,
             }
         )
-    
-    # for jwk in keys:
-    #     if (
-    #         jwk["exp"] > time.time()
-    #     ):  # if the expiration time is more than the current time add to list
-    #         tmp.append(jwk)
 
+    # row1 = data[0]
+    # kid = row1[0]
+    # # print(f"kid:\n\n{kid}\n\n")
+    # private_pem = row1[1]
+    # private_pem_decoded = private_pem.decode('utf-8')
+    # # print(f"private_pem:\n\n{private_pem}\n\n")
+    
+    # # Load the private key
+    # private_key = serialization.load_pem_private_key(
+    #     private_pem,
+    #     password=None,
+    #     backend=default_backend()
+    # )
+
+    # n = private_key.public_key().public_numbers().n
+    # e = private_key.public_key().public_numbers().e
+
+    # # convert n and e to base64 url safe
+    # n_byte_array = n.to_bytes((n.bit_length() + 7) // 8, byteorder="big", signed=False)
+    # n_base64_str = base64.urlsafe_b64encode(n_byte_array).decode("utf-8").rstrip("=")
+    # # print(f"n = {n_base64_str}")
+    # e_byte_array = e.to_bytes((e.bit_length() + 7) // 8, byteorder="big", signed=False)
+    # e_base64_str = base64.urlsafe_b64encode(e_byte_array).decode("utf-8").rstrip("=")
+    # # print(f"e = {e_base64_str}")
+
+    # for kid, exp in data:
+    #     tmp.append(
+    #         {
+    #             "kid": kid,
+    #             "alg": "RS256",
+    #             "kty": "RSA",
+    #             "use": "sig",
+    #             "exp": exp,
+    #             "n": n_base64_str,
+    #             "e": e_base64_str,
+    #         }
+    #     )
+    
     jwks = {
         "keys": tmp
     }  # add filtered list of jwk's (tmp) to jwks under "keys" key per spec
@@ -139,18 +178,8 @@ def jwks():
 
 @app.route("/auth", methods=["POST"])
 def auth():
-    # # using time to set expiration and generate a unique kid
-    # kid = str(
-    #     float(time.time())
-    # )  # had as int, set to float, thought maybe the time wasn't precise enough to have distinct kids
-    # expiry = time.time() + 3600  # 1 hour expiration
-    
-    
     
     now = time.time()
-
-    # generate key pair -- private pem used for signing, don't think i need public_pem ?
-    # private_pem, public_pem, n, e = generate_key_pair()
 
     # connect to database
     conn = sqlite3.connect('totally_not_my_privateKeys.db')
@@ -158,66 +187,49 @@ def auth():
 
     # if expired='true' pull an expired key from the database else pull a non-expired key
     if request.args.get("expired"):
-        cursor.execute('SELECT kid, key, exp FROM privateKeys WHERE exp <= ?', (now,))
+        cursor.execute('SELECT kid, key, exp FROM keys WHERE exp <= ?', (now,))
     else:
-        cursor.execute('SELECT kid, key, exp FROM privateKeys WHERE exp > ?', (now,))
-
+        cursor.execute('SELECT kid, key, exp FROM keys WHERE exp > ?', (now,))
     data = cursor.fetchone()
     conn.close()
 
     kid = data[0]
     private_pem = data[1]
     expiry = data[2]
-    # private_key = serialization.load_pem_private_key(private_pem, password=None, backend=default_backend())
+    private_pem_decoded = private_pem.decode('utf-8')
+    # print(f"\n\nprivate_pem_decoded: \n{private_pem_decoded}")
+    # print(f"expiry type: {type(expiry)}")
+    # print(f"\n\\auth: \nkid:\n\n{kid}\n\nprivate_pem:\n\n{private_pem}\n\nexpiry:\n\n{expiry}\n\n")
 
-    # # convert n and e to base64 url safe
-    # n_byte_array = n.to_bytes((n.bit_length() + 7) // 8, byteorder="big", signed=False)
-    # n_base64_str = base64.urlsafe_b64encode(n_byte_array).decode("utf-8").rstrip("=")
-    # # print(f"n = {n_base64_str}")
-    # e_byte_array = e.to_bytes((e.bit_length() + 7) // 8, byteorder="big", signed=False)
-    # e_base64_str = base64.urlsafe_b64encode(e_byte_array).decode("utf-8").rstrip("=")
-    # # print(f"e = {e_base64_str}")
+    # Load the private key
+    private_key = serialization.load_pem_private_key(
+        private_pem,
+        password=None,
+        backend=default_backend()
+    )
 
-    # # save to database
-    # conn = sqlite3.connect('totally_not_my_privateKeys.db')
-    # # conn.execute('INSERT INTO privateKeys (kid, key, alg, kty, use, n, e, exp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',(kid, private_pem, "RS256", "RSA", "sig", n, e, expiry))
-    # conn.execute('INSERT INTO privateKeys (key, exp) VALUES (?, ?)',(private_pem, expiry))
-    # conn.commit()
-    # conn.close()
+    n = private_key.public_key().public_numbers().n
+    # print(f"n = {n}")
+    e = private_key.public_key().public_numbers().e
+    # print(f"e = {e}")
 
-    # pull from database
-
-    # # store keys with kid and expiry in the list keys
-    # # will become the value for key "keys" in jwks
-    # keys.append(
-    #     {
-    #         "kid": kid,
-    #         "alg": "RS256",
-    #         "kty": "RSA",
-    #         "use": "sig",
-    #         "n": n_base64_str,
-    #         "e": e_base64_str,
-    #         "exp": expiry,
-    #     }
-    # )
+    # convert n and e to base64 url safe
+    n_byte_array = n.to_bytes((n.bit_length() + 7) // 8, byteorder="big", signed=False)
+    n_base64_str = base64.urlsafe_b64encode(n_byte_array).decode("utf-8").rstrip("=")
+    # print(f"n = {n_base64_str}")
+    e_byte_array = e.to_bytes((e.bit_length() + 7) // 8, byteorder="big", signed=False)
+    e_base64_str = base64.urlsafe_b64encode(e_byte_array).decode("utf-8").rstrip("=")
+    # print(f"e = {e_base64_str}")
 
     # create and sign JWT token to be returned to requester
     token = jwt.encode(
         {  # jwt.encode does the signing
-            "exp": expiry,
-            "iss": "Yours truly",
-            "iat": time.time(),
+            "exp": expiry
         },
-        private_pem,
+        private_pem_decoded,
         algorithm="RS256",
         headers={
-            "kid": kid,
-            "alg": "RS256",
-            "typ": "JWT",
-            "kty": "RSA",
-            "use": "sig",
-            # "n": n_base64_str,
-            # "e": e_base64_str,
+            "kid": str(kid),
         },
     )
 
